@@ -34,7 +34,7 @@ const Sidebar = ({ activeSection, setActiveSection, role }: SidebarProps) => {
       {/* Header */}
       <div className="p-0 border-b border-gray-200">
         <img
-          src="/logo3.png"
+          src="/logo1.png"
           alt="Rwanda Energy logo"
           className="h-42 w-60 object-contain"
         />
