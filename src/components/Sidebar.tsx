@@ -1,9 +1,10 @@
-import { LayoutGrid, Target, BarChart3, FileText, Settings, LucideIcon } from 'lucide-react';
+import { FiGrid, FiTarget, FiBarChart2, FiFileText, FiSettings } from 'react-icons/fi';
+import type { IconType } from 'react-icons';
 
 interface MenuItem {
   id: string;
   label: string;
-  icon: LucideIcon;
+  icon: IconType;
 }
 
 interface SidebarProps {
@@ -14,17 +15,17 @@ interface SidebarProps {
 
 const Sidebar = ({ activeSection, setActiveSection, role }: SidebarProps) => {
   const adminMenu: MenuItem[] = [
-    { id: 'admin', label: 'Admin', icon: LayoutGrid },
-    { id: 'analysis', label: 'Analysis', icon: BarChart3 },
-    { id: 'report', label: 'Reports', icon: FileText },
-    { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'admin', label: 'Admin', icon: FiGrid },
+    { id: 'analysis', label: 'Analysis', icon: FiBarChart2 },
+    { id: 'report', label: 'Reports', icon: FiFileText },
+    { id: 'settings', label: 'Settings', icon: FiSettings },
   ];
 
   const householdMenu: MenuItem[] = [
-    { id: 'prediction', label: 'Prediction', icon: Target },
-    { id: 'analysis', label: 'Analysis', icon: BarChart3 },
-    { id: 'report', label: 'Reports', icon: FileText },
-    { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'prediction', label: 'Prediction', icon: FiTarget },
+    { id: 'analysis', label: 'Analysis', icon: FiBarChart2 },
+    { id: 'report', label: 'Reports', icon: FiFileText },
+    { id: 'settings', label: 'Settings', icon: FiSettings },
   ];
 
   const menuItems = role === 'Admin' ? adminMenu : householdMenu;
