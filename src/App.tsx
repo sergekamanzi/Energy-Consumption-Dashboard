@@ -89,33 +89,37 @@ function App() {
             </div>
 
             <div className="space-y-4">
-              <>
-                <div>
-                  <label className="block text-sm mb-2 text-darkgreen-500">Phone Number</label>
-                  <input
-                    type="tel"
-                    placeholder="078XXXXXXX"
-                    className="w-full px-4 py-2 bg-white border border-darkgreen-500 rounded text-black"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm mb-2 text-darkgreen-500">Amount (RWF)</label>
-                  <input
-                    type="number"
-                    placeholder="Enter amount"
-                    className="w-full px-4 py-2 bg-white border border-darkgreen-500 rounded text-black"
-                  />
-                </div>
-              </>
+              {/* USSD Instructions */}
+              <div className="mt-4 bg-gray-50 border border-gray-200 rounded p-4 text-black">
+                <h3 className="text-base font-bold text-orange-500 mb-3">🔌 Uko wagura umuriro ukoresheje USSD (*182#)</h3>
+                <ol className="list-decimal ml-6 space-y-2">
+                  <li>Andika <span className="font-mono font-semibold">*182#</span> kuri telefone yawe.</li>
+                  <li>Hitamo <strong>2. Kugura (Buy)</strong>.</li>
+                  <li>Hitamo <strong>2. Kugura umuriro (Buy Electricity)</strong>.</li>
+                  <li>
+                    Hanyuma:
+                    <ul className="list-disc ml-6 mt-1 space-y-1">
+                      <li>Hitamo <strong>1</strong> hanyuma wandike <strong>numero ya kashi</strong> (meter number), cyangwa</li>
+                      <li>Hitamo <strong>2. Konti yanjye (My account)</strong> niba uyifite.</li>
+                    </ul>
+                  </li>
+                  <li>Andika umubare w’amafaranga ushaka kuguraho umuriro.</li>
+                  <li>Emeza ukoresheje <strong>PIN yawe ya MoMo</strong>.</li>
+                  <li>
+                    Reba ubutumwa (SMS) buzaza — buzaba burimo <strong>kode y’umuriro</strong> ifite:
+                    <ul className="list-disc ml-6 mt-1 space-y-1">
+                      <li>Imibare 16 (urugero: <span className="font-mono">1234 5678 9012 3456</span>), cyangwa</li>
+                      <li>Imibare 20 (<span className="font-semibold">STS Type 1</span>) — iyi niyo winjiza muri kashi yawe.</li>
+                    </ul>
+                  </li>
+                </ol>
+              </div>
 
               <button
-                onClick={() => {
-                  alert('Payment Successful!');
-                  setShowPaymentModal(false);
-                }}
+                onClick={() => setShowPaymentModal(false)}
                 className="w-full bg-darkgreen-500 hover:bg-darkgreen-600 text-white font-bold py-3 rounded transition"
               >
-                Pay Now
+                Close
               </button>
             </div>
           </div>
