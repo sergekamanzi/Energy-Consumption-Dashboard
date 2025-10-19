@@ -91,3 +91,13 @@ export interface AIRecommendation {
   recommendation_engine?: string;
   number_of_recommendations?: number;
 }
+
+// Shared user profile for navbar and settings
+export interface UserProfile {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  houseLocation: string;
+  profileImage: string; // data URL or external URL
+}

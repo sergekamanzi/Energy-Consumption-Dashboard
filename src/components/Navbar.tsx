@@ -1,14 +1,16 @@
 import { useState } from 'react';
 import { ChevronDown, CreditCard, User } from 'lucide-react';
+import type { UserProfile } from '../types';
 
 interface NavbarProps {
   setShowPaymentModal: (show: boolean) => void;
   selectedRole: 'Admin' | 'Household User';
   setSelectedRole: (r: 'Admin' | 'Household User') => void;
   householdId?: string;
+  userProfile?: UserProfile;
 }
 
-const Navbar = ({ setShowPaymentModal, selectedRole, setSelectedRole, householdId }: NavbarProps) => {
+const Navbar = ({ setShowPaymentModal, selectedRole, setSelectedRole, householdId, userProfile }: NavbarProps) => {
   const [showPaymentDropdown, setShowPaymentDropdown] = useState(false);
   const [showRoleDropdown, setShowRoleDropdown] = useState(false);
 
@@ -24,7 +26,7 @@ const Navbar = ({ setShowPaymentModal, selectedRole, setSelectedRole, householdI
   <p className="text-sm text-darkgreen-500">Household Energy Management</p>
       </div>
 
-      <div className="flex items-center gap-4">
+  <div className="flex items-center gap-6">
         {/* Role dropdown */}
         <div className="relative">
           <button
@@ -60,6 +62,23 @@ const Navbar = ({ setShowPaymentModal, selectedRole, setSelectedRole, householdI
           )}
         </div>
 
+        {selectedRole === 'Household User' && (
+        <div className="hidden md:flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-gray-100 border border-darkgreen-500 overflow-hidden flex items-center justify-center">
+            {userProfile?.profileImage ? (
+              <img src={userProfile.profileImage} alt="Profile" className="w-full h-full object-cover" />
+            ) : (
+              <User size={20} className="text-black" />
+            )}
+          </div>
+          <div className="leading-tight">
+            <p className="text-sm font-semibold text-black">{userProfile ? `${userProfile.firstName} ${userProfile.lastName}` : 'Guest User'}</p>
+            <p className="text-xs text-gray-500">{selectedRole}</p>
+          </div>
+        </div>
+        )}
+
+        {selectedRole === 'Household User' && (
         <div className="relative">
         <button
           onClick={() => setShowPaymentDropdown(!showPaymentDropdown)}
@@ -80,7 +99,8 @@ const Navbar = ({ setShowPaymentModal, selectedRole, setSelectedRole, householdI
             </button>
           </div>
         )}
-      </div>
+  </div>
+  )}
       </div>
     </nav>
   );

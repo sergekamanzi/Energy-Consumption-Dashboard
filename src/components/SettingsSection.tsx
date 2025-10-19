@@ -1,5 +1,6 @@
 import { Settings, Bell, User, Camera, MapPin } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import type { UserProfile as SharedUserProfile } from '../types';
 
 interface SettingsState {
   notifications: boolean;
@@ -12,16 +13,14 @@ interface SettingsState {
   weeklyReports: boolean;
 }
 
-interface UserProfile {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  houseLocation: string;
-  profileImage: string;
+
+interface SettingsProps {
+  userProfile: SharedUserProfile;
+  onUpdateUserProfile: (u: SharedUserProfile) => void;
+  isAdmin?: boolean;
 }
 
-const SettingsSection = () => {
+const SettingsSection = ({ userProfile: initialProfile, onUpdateUserProfile, isAdmin = false }: SettingsProps) => {
   const [settings, setSettings] = useState<SettingsState>({
     notifications: true,
     darkMode: true,
@@ -33,14 +32,11 @@ const SettingsSection = () => {
     weeklyReports: false,
   });
 
-  const [userProfile, setUserProfile] = useState<UserProfile>({
-    firstName: 'John',
-    lastName: 'Doe',
-    email: 'john.doe@example.com',
-    phone: '+250 78 123 4567',
-    houseLocation: 'Kigali, Rwanda',
-    profileImage: '',
-  });
+  const [userProfile, setUserProfile] = useState<SharedUserProfile>(initialProfile);
+
+  useEffect(() => {
+    setUserProfile(initialProfile);
+  }, [initialProfile]);
 
   const [password, setPassword] = useState({
     currentPassword: '',
@@ -79,8 +75,7 @@ const SettingsSection = () => {
 
   const handleProfileUpdate = (e: React.FormEvent) => {
     e.preventDefault();
-    // Handle profile update logic here
-    console.log('Updating profile:', userProfile);
+    onUpdateUserProfile(userProfile);
     alert('Profile updated successfully!');
   };
 
@@ -105,8 +100,9 @@ const SettingsSection = () => {
           <p className="text-black">Manage your account and dashboard preferences</p>
         </div>
 
-        {/* User Account Management Section */}
-            <div className="bg-white rounded-2xl p-8 border border-gray-200">
+    {/* User Account Management Section (hide for Admin) */}
+    {!isAdmin && (
+      <div className="bg-white rounded-2xl p-8 border border-gray-200">
           <div className="flex items-center gap-3 mb-6">
             <User className="text-blue-500" size={28} />
             <h2 className="text-2xl font-bold text-blue-500">Account Management</h2>
@@ -219,10 +215,12 @@ const SettingsSection = () => {
               Update Profile
             </button>
           </form>
-        </div>
+  </div>
+  )}
 
-        {/* Change Password Section */}
-        <div className="bg-white rounded-2xl p-8 border border-gray-200">
+  {/* Change Password Section (hide for Admin) */}
+  {!isAdmin && (
+  <div className="bg-white rounded-2xl p-8 border border-gray-200">
           <h2 className="text-2xl font-bold text-orange-500 mb-6">Change Password</h2>
           
           <form onSubmit={handlePasswordChange} className="space-y-6">
@@ -268,7 +266,8 @@ const SettingsSection = () => {
               Change Password
             </button>
           </form>
-        </div>
+  </div>
+  )}
 
         {/* General Settings Section */}
   <div className="bg-white rounded-2xl p-8 border border-gray-200">

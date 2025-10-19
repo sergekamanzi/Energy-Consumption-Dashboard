@@ -6,7 +6,7 @@ import PredictionSection, { type Predictions } from './components/PredictionSect
 import AnalysisSection from './components/AnalysisSection';
 import ReportSection from './components/ReportSection';
 import SettingsSection from './components/SettingsSection';
-import type { Report } from './types';
+import type { Report, UserProfile } from './types';
 
 // Use shared Report type from `src/types.ts`
 
@@ -16,6 +16,14 @@ function App() {
   const [role, setRole] = useState<'Admin' | 'Household User'>('Household User');
   const [currentHouseholdId] = useState<string>(() => `hh-${Date.now()}`);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [userProfile, setUserProfile] = useState<UserProfile>({
+    firstName: 'John',
+    lastName: 'Doe',
+    email: 'john.doe@example.com',
+    phone: '+250 78 123 4567',
+    houseLocation: 'Kigali, Rwanda',
+    profileImage: '',
+  });
 
   const handleGenerateReport = (reportData: Predictions) => {
     const newReport: Report = {
@@ -38,7 +46,13 @@ function App() {
       case 'report':
         return <ReportSection isAdmin={role === 'Admin'} reports={reports.filter(r => role === 'Admin' ? true : r.ownerId === currentHouseholdId)} />;
       case 'settings':
-        return <SettingsSection />;
+        return (
+          <SettingsSection
+            userProfile={userProfile}
+            onUpdateUserProfile={setUserProfile}
+            isAdmin={role === 'Admin'}
+          />
+        );
       default:
         return <PredictionSection onGenerateReport={handleGenerateReport} />;
     }
@@ -53,6 +67,7 @@ function App() {
           setShowPaymentModal={setShowPaymentModal}
           selectedRole={role}
           setSelectedRole={setRole}
+          userProfile={userProfile}
         />
 
         <main className="p-8">
