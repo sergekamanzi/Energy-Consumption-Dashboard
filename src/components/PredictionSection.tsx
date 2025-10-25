@@ -81,8 +81,6 @@ interface ApiStatus {
   model_loaded?: boolean;
   models?: {
     supervised?: ModelStatus;
-    reinforcement_learning?: ModelStatus;
-    unsupervised?: ModelStatus;
   };
 }
 
@@ -499,8 +497,6 @@ const PredictionSection = ({ onGenerateReport }: PredictionSectionProps) => {
               {apiStatus.models && (
                 <span className="text-xs text-black ml-2">
                   {apiStatus.models.supervised?.loaded && '(ML) '}
-                  {apiStatus.models.reinforcement_learning?.ready && '(RL) '}
-                  {apiStatus.models.unsupervised?.ready && '(UL)'}
                 </span>
               )}
             </div>
@@ -799,7 +795,7 @@ const PredictionSection = ({ onGenerateReport }: PredictionSectionProps) => {
                       AI-Powered Recommendations
                     </h2>
                     <p className="text-black">
-                      Smart suggestions from our reinforcement learning model to optimize your energy usage
+                      Smart suggestions from our AI model to optimize your energy usage
                     </p>
                   </div>
                   <button

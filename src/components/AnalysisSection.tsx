@@ -428,7 +428,7 @@ const AnalysisSection = ({ reports, isAdmin = false }: AnalysisSectionProps) => 
                 <button
                   onClick={fetchForecast}
                   disabled={!hasEnoughDataForForecast || isLoading}
-                  className={`px-6 py-3 rounded-lg font-semibold transition-all ${
+                  className={`px-6 py-3 rounded-none font-semibold transition-all ${
                     hasEnoughDataForForecast 
                       ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-lg hover:shadow-xl transform hover:scale-105'
                       : 'bg-gray-400 text-gray-200 cursor-not-allowed'

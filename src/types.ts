@@ -43,8 +43,6 @@ export interface ApiStatus {
   model_loaded?: boolean;
   models?: {
     supervised?: ModelStatus;
-    reinforcement_learning?: ModelStatus;
-    unsupervised?: ModelStatus;
   };
 }
 
