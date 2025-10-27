@@ -71,7 +71,7 @@ const AnalysisSection = ({ reports, isAdmin = false }: AnalysisSectionProps) => 
   };
 
   // Client-side fallback forecast (improved): uses linear regression trend, seasonality and noise
-  const computeClientFallbackForecast = (historicalData: number[], monthsAhead: number = 3): TimeSeriesResponse => {
+  const computeClientFallbackForecast = (historicalData: number[], monthsAhead: number = 2): TimeSeriesResponse => {
     const n = historicalData.length;
     const preds: number[] = [];
 
@@ -213,8 +213,8 @@ const AnalysisSection = ({ reports, isAdmin = false }: AnalysisSectionProps) => 
       const payload = {
         historical_data: historicalData,
         // include both keys some APIs expect one or the other
-        months_ahead: 6,
-        forecast_months: 6,
+        months_ahead: 2,
+        forecast_months: 2,
         household_info: reports[0]?.householdData || {},
         householdData: reports[0]?.householdData || {}
       };
@@ -278,14 +278,14 @@ const AnalysisSection = ({ reports, isAdmin = false }: AnalysisSectionProps) => 
             }
             console.error('Retry forecast API error', retryResp.status, retryMsg);
             // fallback to client-side predictor instead of throwing
-            const fallback = computeClientFallbackForecast(historicalData, 6);
+            const fallback = computeClientFallbackForecast(historicalData, 2);
             setForecastData(fallback);
             setShowForecast(true);
             return;
           } catch (retryErr) {
             // if retry failed, use client-side fallback
             console.error('Retry failed:', retryErr);
-            const fallback = computeClientFallbackForecast(historicalData, 6);
+            const fallback = computeClientFallbackForecast(historicalData, 2);
             setForecastData(fallback);
             setShowForecast(true);
             return;
@@ -293,7 +293,7 @@ const AnalysisSection = ({ reports, isAdmin = false }: AnalysisSectionProps) => 
         }
         // For other server messages, fallback to client-side predictor
         console.warn('Server returned error; using client-side fallback forecast', serverMessage);
-        const fallback = computeClientFallbackForecast(historicalData, 6);
+        const fallback = computeClientFallbackForecast(historicalData, 2);
         setForecastData(fallback);
         setShowForecast(true);
         return;
@@ -428,9 +428,9 @@ const AnalysisSection = ({ reports, isAdmin = false }: AnalysisSectionProps) => 
                 <button
                   onClick={fetchForecast}
                   disabled={!hasEnoughDataForForecast || isLoading}
-                  className={`px-6 py-3 rounded-none font-semibold transition-all ${
+                  className={`px-6 py-3 rounded-none font-semibold ${
                     hasEnoughDataForForecast 
-                      ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-lg hover:shadow-xl transform hover:scale-105'
+                      ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-lg'
                       : 'bg-gray-400 text-gray-200 cursor-not-allowed'
                   } ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >

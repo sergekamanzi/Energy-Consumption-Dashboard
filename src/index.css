@@ -2,6 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Import Nunito font */
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@300..1000&display=swap');
+
+/* Apply Nunito (Tailwind sans) globally */
+@layer base {
+	body {
+		@apply font-sans;
+	}
+}
+
 /* Hide number input spinners (Chrome, Safari, Edge, Opera) */
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button {
