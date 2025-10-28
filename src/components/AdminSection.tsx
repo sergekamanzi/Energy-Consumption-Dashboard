@@ -61,9 +61,15 @@ const AdminSection = ({ reports = [] }: AdminSectionProps) => {
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
   const [communityInsights, setCommunityInsights] = useState<CommunityInsights | null>(null);
+  // Stores per-report cluster assignments returned by the API (index-aligned with `reports`)
+  const [clusterAssignments, setClusterAssignments] = useState<number[]>([]);
   const [selectedCluster, setSelectedCluster] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState('clustering');
   const [isLoading, setIsLoading] = useState(false);
+  // Call our Node backend proxy to avoid CORS and network issues
+  const BACKEND_BASE = 'http://localhost:4000/api/ai';
+  const HEALTH_ENDPOINT = `${BACKEND_BASE}/health`;
+  const CLUSTERING_ENDPOINT = `${BACKEND_BASE}/clustering/batch`;
 
   // Minimal type for items returned in individual_predictions
   interface ClusterPrediction {
@@ -82,6 +88,15 @@ const AdminSection = ({ reports = [] }: AdminSectionProps) => {
     : '0';
 
   const totalBill = reports.reduce((sum, r) => sum + (parseFloat(String(r.bill)) || 0), 0);
+
+  const checkApiHealth = async (): Promise<boolean> => {
+    try {
+      const res = await fetch(HEALTH_ENDPOINT, { headers: { 'Accept': 'application/json' } });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  };
 
   const performClusteringAnalysis = async () => {
     if (reports.length < 3) {
@@ -120,7 +135,13 @@ const AdminSection = ({ reports = [] }: AdminSectionProps) => {
 
       console.log('Sending household data for clustering:', householdsData);
 
-      const response = await fetch('http://localhost:8000/api/clustering/batch', {
+      // Connectivity check (provides clearer error when server/CORS blocks)
+      const apiUp = await checkApiHealth();
+      if (!apiUp) {
+        throw new Error('AI service not reachable. Ensure FastAPI is running at 127.0.0.1:8000 (backend proxies via /api/ai).');
+      }
+
+      const response = await fetch(CLUSTERING_ENDPOINT, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -155,8 +176,9 @@ const AdminSection = ({ reports = [] }: AdminSectionProps) => {
         // Group by cluster and create cluster data
         const clusterMap = new Map<number, Cluster>();
         const anomalyList: Anomaly[] = [];
+        const assignments: number[] = [];
 
-  individualPredictions.forEach((prediction: ClusterPrediction, index: number) => {
+        individualPredictions.forEach((prediction: ClusterPrediction, index: number) => {
           const clusterData: Cluster = {
             cluster: prediction.cluster,
             cluster_profile: prediction.cluster_profile,
@@ -167,6 +189,7 @@ const AdminSection = ({ reports = [] }: AdminSectionProps) => {
           };
 
           clusterMap.set(prediction.cluster, clusterData);
+          assignments[index] = prediction.cluster;
 
           if (prediction.anomaly_status === 'Anomaly') {
             anomalyList.push({
@@ -179,6 +202,7 @@ const AdminSection = ({ reports = [] }: AdminSectionProps) => {
 
         setClusters(Array.from(clusterMap.values()));
         setAnomalies(anomalyList);
+        setClusterAssignments(assignments);
         
         console.log('Processed clusters:', Array.from(clusterMap.values()));
         console.log('Processed anomalies:', anomalyList);
@@ -187,7 +211,11 @@ const AdminSection = ({ reports = [] }: AdminSectionProps) => {
       }
     } catch (error) {
       console.error('Clustering error:', error);
-      alert(`Failed to perform clustering analysis: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      const hint = message.includes('Failed to fetch') || message.includes('Network')
+        ? '\nHint: Is the FastAPI server running? Check CORS for http://localhost:5173 and http://127.0.0.1:5173'
+        : '';
+      alert(`Failed to perform clustering analysis: ${message}${hint}`);
     } finally {
       setIsLoading(false);
     }
@@ -214,11 +242,8 @@ const AdminSection = ({ reports = [] }: AdminSectionProps) => {
 
     // Get reports that belong to this cluster (simplified mapping)
     // In a real implementation, this mapping would come from the API response
-    const clusterReports = reports.filter((_, index) => {
-      // Simple round-robin assignment for demo
-      // Replace this with actual cluster assignment from API
-      return index % 3 === clusterId;
-    });
+    // Use real assignments from API (fallback to empty when not available)
+    const clusterReports = reports.filter((_, index) => clusterAssignments[index] === clusterId);
 
     const consumptions = clusterReports.map(r => parseFloat(String(r.consumption)) || 0);
     const bills = clusterReports.map(r => parseFloat(String(r.bill)) || 0);

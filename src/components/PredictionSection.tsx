@@ -130,7 +130,7 @@ interface AIRecommendation {
   number_of_recommendations?: number;
 }
 
-const PredictionSection = ({ onGenerateReport }: PredictionSectionProps) => {
+const PredictionSection = ({ onGenerateReport, ownerId }: PredictionSectionProps) => {
   const [appliances, setAppliances] = useState<Appliance[]>([]);
   const [currentAppliance, setCurrentAppliance] = useState<Appliance>({
     name: '',
@@ -154,7 +154,8 @@ const PredictionSection = ({ onGenerateReport }: PredictionSectionProps) => {
   const [hasGeneratedReport, setHasGeneratedReport] = useState(false);
 
   // API Configuration
-  const API_BASE_URL = 'http://127.0.0.1:8000';
+  const API_BASE_URL = 'http://127.0.0.1:8000'; // FastAPI (AI model)
+  const BACKEND_BASE_URL = 'http://localhost:4000/api'; // Node/Express + MongoDB
 
   const addAppliance = () => {
     if (currentAppliance.name && currentAppliance.power && currentAppliance.hours) {
@@ -237,7 +238,7 @@ const PredictionSection = ({ onGenerateReport }: PredictionSectionProps) => {
         throw new Error(errorData?.detail || `API Error: ${response.status} ${response.statusText}`);
       }
 
-      const result: PredictionResponse = await response.json();
+  const result: PredictionResponse = await response.json();
 
       // Transform API response to match our UI format
       const predictionData: Predictions = {
@@ -264,6 +265,17 @@ const PredictionSection = ({ onGenerateReport }: PredictionSectionProps) => {
       };
 
       setPredictions(predictionData);
+
+      // Persist to backend (MongoDB): saves to predictions and also auto-creates a report snapshot
+      try {
+        await fetch(`${BACKEND_BASE_URL}/predictions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...predictionData, ownerId })
+        });
+      } catch (saveErr) {
+        console.warn('Failed to save prediction/report to backend:', saveErr);
+      }
 
       // Only call onGenerateReport once per generated report to avoid duplicates
       if (onGenerateReport && !hasGeneratedReport) {
