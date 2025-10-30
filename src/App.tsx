@@ -6,6 +6,7 @@ import PredictionSection, { type Predictions } from './components/PredictionSect
 import AnalysisSection from './components/AnalysisSection';
 import ReportSection from './components/ReportSection';
 import SettingsSection from './components/SettingsSection';
+import FeedbackWidget from './components/FeedbackWidget';
 import type { Report, UserProfile } from './types';
 
 // Use shared Report type from `src/types.ts`
@@ -15,7 +16,13 @@ function App() {
   const [activeSection, setActiveSection] = useState('prediction');
   const [reports, setReports] = useState<Report[]>([]);
   const [role, setRole] = useState<'Admin' | 'Household User'>('Household User');
-  const [currentHouseholdId] = useState<string>(() => `hh-${Date.now()}`);
+  const [currentHouseholdId] = useState<string>(() => {
+    const stored = typeof window !== 'undefined' ? localStorage.getItem('pl_household_id') : null;
+    if (stored && stored.trim()) return stored;
+    const generated = `hh-${Date.now()}`;
+  try { localStorage.setItem('pl_household_id', generated); } catch { /* ignore */ }
+    return generated;
+  });
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [userProfile, setUserProfile] = useState<UserProfile>({
     firstName: 'Kamanzi',
@@ -61,13 +68,14 @@ function App() {
         breakdown?: unknown[];
         ownerId?: string;
       };
+      // 1) Primary fetch based on role/ownerId
       const url = role === 'Admin'
         ? `${BACKEND_BASE_URL}/reports?limit=200`
         : `${BACKEND_BASE_URL}/reports?ownerId=${encodeURIComponent(currentHouseholdId)}&limit=200`;
-      const res = await fetch(url);
+      let res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const mapped: Report[] = (Array.isArray(data) ? data : []).map((doc: ReportDoc, idx: number) => {
+      let data = await res.json();
+      let mapped: Report[] = (Array.isArray(data) ? data : []).map((doc: ReportDoc, idx: number) => {
         const ts = doc.timestamp ? new Date(doc.timestamp).toISOString() : new Date(doc.createdAt || Date.now()).toISOString();
         const idNum = typeof doc.id === 'number' ? doc.id : Date.parse(ts) + idx;
         return {
@@ -89,6 +97,36 @@ function App() {
           ownerId: doc.ownerId
         } as Report;
       });
+
+      // 2) Household fallback: if no owner-specific reports, load recent all to populate AnalysisSection
+      if (role !== 'Admin' && mapped.length === 0) {
+        res = await fetch(`${BACKEND_BASE_URL}/reports?limit=200`);
+        if (res.ok) {
+          data = await res.json();
+          mapped = (Array.isArray(data) ? data : []).map((doc: ReportDoc, idx: number) => {
+            const ts = doc.timestamp ? new Date(doc.timestamp).toISOString() : new Date(doc.createdAt || Date.now()).toISOString();
+            const idNum = typeof doc.id === 'number' ? doc.id : Date.parse(ts) + idx;
+            return {
+              id: idNum,
+              timestamp: ts,
+              consumption: doc.consumption,
+              bill: doc.bill,
+              total_kwh: doc.total_kwh,
+              total_bill: doc.total_bill,
+              tariffBracket: doc.tariffBracket || doc.tariff_bracket,
+              householdData: doc.householdData || {
+                region: doc.region,
+                incomeLevel: doc.income_level,
+                householdSize: doc.household_size,
+                monthlyBudget: doc.budget
+              },
+              appliances: doc.appliances || [],
+              breakdown: doc.breakdown || [],
+              ownerId: doc.ownerId
+            } as Report;
+          });
+        }
+      }
       setReports(mapped);
     } catch (e) {
       console.warn('Failed to fetch reports from backend:', e);
@@ -120,9 +158,9 @@ function App() {
       case 'prediction':
   return role === 'Household User' ? <PredictionSection onGenerateReport={handleGenerateReport} ownerId={currentHouseholdId} /> : <div className="text-center text-black">Prediction accessible to household users only.</div>;
       case 'analysis':
-        return <AnalysisSection isAdmin={role === 'Admin'} reports={reports.filter(r => role === 'Admin' ? true : r.ownerId === currentHouseholdId)} />;
+        return <AnalysisSection isAdmin={role === 'Admin'} reports={reports} />;
       case 'report':
-        return <ReportSection isAdmin={role === 'Admin'} reports={reports.filter(r => role === 'Admin' ? true : r.ownerId === currentHouseholdId)} />;
+        return <ReportSection isAdmin={role === 'Admin'} reports={reports} />;
       case 'settings':
         return (
           <SettingsSection
@@ -202,6 +240,11 @@ function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Household-only floating Feedback widget */}
+      {role === 'Household User' && (
+        <FeedbackWidget isAdmin={false} backendBaseUrl={BACKEND_BASE_URL} householdId={currentHouseholdId} />
       )}
     </div>
   );

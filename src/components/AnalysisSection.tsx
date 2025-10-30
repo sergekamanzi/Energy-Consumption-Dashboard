@@ -1,5 +1,5 @@
-import { PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import type { PieLabelRenderProps } from 'recharts';
+import { PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area } from 'recharts';
+import type { NameType, ValueType } from 'recharts/types/component/DefaultTooltipContent';
 import type { Report } from '../types';
 import { useState } from 'react';
 
@@ -54,6 +54,55 @@ const AnalysisSection = ({ reports, isAdmin = false }: AnalysisSectionProps) => 
   const [forecastData, setForecastData] = useState<TimeSeriesResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [topN, setTopN] = useState<number>(8);
+  const [smoothTrend, setSmoothTrend] = useState<boolean>(true);
+  const [sortKey, setSortKey] = useState<'month' | 'consumption' | 'bill' | 'tariff' | 'confidence'>('month');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+
+  // formatters
+  const formatKWh = (v: number | string) => `${Number(v).toFixed(1)} kWh`;
+  const formatRWF = (v: number | string) => `${Number(v).toFixed(0)} RWF`;
+  
+  type TrendPoint = { index: number; consumption: number; bill: number; consumption_smoothed?: number; bill_smoothed?: number };
+
+  const handleSort = (key: 'month' | 'consumption' | 'bill' | 'tariff' | 'confidence') => {
+    if (sortKey === key) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  };
+
+  const handleExportForecastCsv = () => {
+    if (!forecastData) return;
+    const header = ['#','Month','Consumption (kWh)','Bill (RWF)','Tariff Bracket','Confidence'];
+    const rows = forecastData.predictions.map((p, i) => [
+      String(i + 1),
+      p.month,
+      p.predicted_consumption_kwh.toFixed(1),
+      p.predicted_bill_rwf.toFixed(0),
+      p.tariff_bracket,
+      p.confidence,
+    ]);
+    const totalCons = forecastData.predictions.reduce((s, p) => s + p.predicted_consumption_kwh, 0);
+    const totalBill = forecastData.predictions.reduce((s, p) => s + p.predicted_bill_rwf, 0);
+    rows.push(['', 'TOTAL', totalCons.toFixed(1), totalBill.toFixed(0), '', '']);
+
+    const csv = [header, ...rows].map(r => r.map(cell => {
+      const needsQuote = /[",\n]/.test(cell);
+      const c = cell.replace(/"/g, '""');
+      return needsQuote ? `"${c}"` : c;
+    }).join(',')).join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `forecast_${Date.now()}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   // Check if user has enough data for forecasting (at least 3 reports)
   const hasEnoughDataForForecast = reports.length >= 3;
@@ -346,6 +395,17 @@ const AnalysisSection = ({ reports, isAdmin = false }: AnalysisSectionProps) => 
     }));
   };
 
+  // 3-point moving average for smoother trend
+  const movingAverage = (data: { index: number; consumption: number; bill: number }[], key: 'consumption' | 'bill') => {
+    const arr = data.map(d => d[key]);
+    const smoothed: number[] = arr.map((_, i) => {
+      const windowVals = arr.slice(Math.max(0, i - 1), Math.min(arr.length, i + 2));
+      const avg = windowVals.reduce((s, v) => s + v, 0) / windowVals.length;
+      return parseFloat(avg.toFixed(2));
+    });
+    return data.map((d, i) => ({ ...d, [`${key}_smoothed`]: smoothed[i] })) as TrendPoint[];
+  };
+
   const getTariffDistribution = () => {
     const tariffCounts: RegionCount = {};
     reports.forEach(report => {
@@ -385,6 +445,10 @@ const AnalysisSection = ({ reports, isAdmin = false }: AnalysisSectionProps) => 
   const trendData = getConsumptionTrend();
   const tariffData = getTariffDistribution();
   const applianceUsageData = getApplianceUsageData();
+
+  const trendWithSmoothing: TrendPoint[] | { index: number; consumption: number; bill: number }[] = smoothTrend
+    ? movingAverage(movingAverage(trendData, 'consumption'), 'bill')
+    : trendData;
 
   const totalConsumption = reports.reduce((sum, r) => sum + parseFloat(String(r.consumption)), 0);
   const avgConsumption = reports.length > 0 ? (totalConsumption / reports.length).toFixed(2) : 0;
@@ -560,37 +624,75 @@ const AnalysisSection = ({ reports, isAdmin = false }: AnalysisSectionProps) => 
 
               {/* Forecast Table */}
               <div className="overflow-x-auto">
-                <h3 className="text-lg font-semibold text-black mb-4">Detailed Forecast</h3>
-                <table className="w-full text-sm text-left text-gray-700">
-                  <thead className="text-xs text-gray-700 uppercase bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3">Month</th>
-                      <th className="px-4 py-3">Consumption (kWh)</th>
-                      <th className="px-4 py-3">Bill (RWF)</th>
-                      <th className="px-4 py-3">Tariff Bracket</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {forecastData.predictions.map((prediction, index) => (
-                      <tr key={index} className="bg-white border-b hover:bg-gray-50">
-                        <td className="px-4 py-3 font-medium text-gray-900">{prediction.month}</td>
-                        <td className="px-4 py-3">{prediction.predicted_consumption_kwh.toFixed(1)}</td>
-                        <td className="px-4 py-3">{prediction.predicted_bill_rwf.toFixed(0)}</td>
-                        <td className="px-4 py-3">
-                          <span className={`px-2 py-1 rounded-full text-xs ${
-                            prediction.tariff_bracket === '0-20 kWh' 
-                              ? 'bg-green-100 text-green-800'
-                              : prediction.tariff_bracket === '21-50 kWh'
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : 'bg-red-100 text-red-800'
-                          }`}>
-                            {prediction.tariff_bracket}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-semibold text-gray-900">Detailed Forecast</h3>
+                  <button onClick={handleExportForecastCsv} className="px-3 py-2 text-sm rounded-md bg-gray-900 text-white hover:bg-gray-800">Export CSV</button>
+                </div>
+                {(() => {
+                  const baseRows = forecastData.predictions.map((p, i) => ({
+                    idx: i + 1,
+                    month: p.month,
+                    consumption: p.predicted_consumption_kwh,
+                    bill: p.predicted_bill_rwf,
+                    tariff: p.tariff_bracket,
+                    confidence: p.confidence,
+                  }));
+                  const rows = [...baseRows].sort((a, b) => {
+                    let comp = 0;
+                    if (sortKey === 'month') comp = a.idx - b.idx; // keep original sequence
+                    if (sortKey === 'consumption') comp = a.consumption - b.consumption;
+                    if (sortKey === 'bill') comp = a.bill - b.bill;
+                    if (sortKey === 'tariff') comp = a.tariff.localeCompare(b.tariff);
+                    if (sortKey === 'confidence') comp = a.confidence.localeCompare(b.confidence);
+                    return sortDir === 'asc' ? comp : -comp;
+                  });
+                  const totalCons = rows.reduce((s, r) => s + r.consumption, 0);
+                  const totalBill = rows.reduce((s, r) => s + r.bill, 0);
+                  const arrow = (key: typeof sortKey) => sortKey === key ? (sortDir === 'asc' ? '▲' : '▼') : '';
+
+                  return (
+                    <table className="w-full text-sm text-left text-gray-700">
+                      <thead className="text-xs uppercase text-gray-600 bg-white sticky top-0 z-10 border-b">
+                        <tr>
+                          <th className="px-4 py-3 w-10">#</th>
+                          <th className="px-4 py-3 cursor-pointer select-none" onClick={() => handleSort('month')}>Month <span className="ml-1 text-gray-400">{arrow('month')}</span></th>
+                          <th className="px-4 py-3 cursor-pointer select-none text-right" onClick={() => handleSort('consumption')}>Consumption (kWh) <span className="ml-1 text-gray-400">{arrow('consumption')}</span></th>
+                          <th className="px-4 py-3 cursor-pointer select-none text-right" onClick={() => handleSort('bill')}>Bill (RWF) <span className="ml-1 text-gray-400">{arrow('bill')}</span></th>
+                          <th className="px-4 py-3 cursor-pointer select-none" onClick={() => handleSort('tariff')}>Tariff Bracket <span className="ml-1 text-gray-400">{arrow('tariff')}</span></th>
+                          <th className="px-4 py-3 cursor-pointer select-none" onClick={() => handleSort('confidence')}>Confidence <span className="ml-1 text-gray-400">{arrow('confidence')}</span></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((r) => (
+                          <tr key={`${r.idx}-${r.month}`} className="odd:bg-white even:bg-gray-50 hover:bg-gray-100 border-b last:border-0">
+                            <td className="px-4 py-3 text-gray-500">{r.idx}</td>
+                            <td className="px-4 py-3 font-medium text-gray-900 whitespace-nowrap">{r.month}</td>
+                            <td className="px-4 py-3 text-right tabular-nums">{r.consumption.toFixed(1)}</td>
+                            <td className="px-4 py-3 text-right tabular-nums">{r.bill.toFixed(0)}</td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                r.tariff === '0-20 kWh' ? 'bg-green-100 text-green-800' : r.tariff === '21-50 kWh' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'
+                              }`}>
+                                {r.tariff}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">{r.confidence}</span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-white">
+                          <td className="px-4 py-3" colSpan={2}><span className="text-gray-600">Totals</span></td>
+                          <td className="px-4 py-3 text-right font-semibold text-gray-900">{totalCons.toFixed(1)} kWh</td>
+                          <td className="px-4 py-3 text-right font-semibold text-gray-900">{totalBill.toFixed(0)} RWF</td>
+                          <td className="px-4 py-3" colSpan={2}></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  );
+                })()}
               </div>
 
               {/* Historical Context */}
@@ -606,114 +708,129 @@ const AnalysisSection = ({ reports, isAdmin = false }: AnalysisSectionProps) => 
             </div>
           )}
 
-          {/* Original Analytics Content */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="bg-white p-6 rounded-lg border-2 border-darkgreen-500">
-              <h3 className="text-sm text-black mb-2">Total Reports</h3>
-              <p className="text-3xl font-bold text-darkgreen-500">{reports.length}</p>
+          {/* KPI cards */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-white p-5 rounded-xl shadow border border-gray-100">
+              <h3 className="text-xs uppercase tracking-wide text-gray-500 mb-2">Total Reports</h3>
+              <p className="text-3xl font-extrabold text-gray-900">{reports.length}</p>
             </div>
-
-            <div className="bg-white p-6 rounded-lg border-2 border-orange-500">
-              <h3 className="text-sm text-black mb-2">Avg Consumption</h3>
-              <p className="text-3xl font-bold text-orange-500">{avgConsumption} kWh</p>
+            <div className="bg-white p-5 rounded-xl shadow border border-gray-100">
+              <h3 className="text-xs uppercase tracking-wide text-gray-500 mb-2">Avg Consumption</h3>
+              <p className="text-3xl font-extrabold text-emerald-600">{avgConsumption} kWh</p>
             </div>
-
-            <div className="bg-white p-6 rounded-lg border-2 border-darkgreen-500">
-              <h3 className="text-sm text-black mb-2">Total Consumption</h3>
-              <p className="text-3xl font-bold text-darkgreen-500">{totalConsumption.toFixed(2)} kWh</p>
+            <div className="bg-white p-5 rounded-xl shadow border border-gray-100">
+              <h3 className="text-xs uppercase tracking-wide text-gray-500 mb-2">Total Consumption</h3>
+              <p className="text-3xl font-extrabold text-gray-900">{totalConsumption.toFixed(2)} kWh</p>
             </div>
-
-            <div className="bg-white p-6 rounded-lg border-2 border-orange-500">
-              <h3 className="text-sm text-black mb-2">Avg Bill</h3>
-              <p className="text-3xl font-bold text-orange-500">{avgBill} RWF</p>
+            <div className="bg-white p-5 rounded-xl shadow border border-gray-100">
+              <h3 className="text-xs uppercase tracking-wide text-gray-500 mb-2">Avg Bill</h3>
+              <p className="text-3xl font-extrabold text-orange-600">{avgBill} RWF</p>
             </div>
           </div>
 
           {isAdmin ? (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="bg-white p-6 rounded-lg border-2 border-darkgreen-500">
-                <h2 className="text-xl font-bold text-darkgreen-500 mb-4">Households by Region</h2>
+              <div className="bg-white p-6 rounded-xl shadow border border-gray-100">
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="text-lg font-semibold text-gray-900">Households by Region</h2>
+                </div>
                 <ResponsiveContainer width="100%" height={300}>
                   <PieChart>
                     <Pie
                       data={regionData}
                       cx="50%"
                       cy="50%"
-                      labelLine={false}
-                      label={(props: PieLabelRenderProps) => {
-                        const name = props.name ?? 'Unknown';
-                        const rawPercent = typeof props.percent === 'number' ? props.percent : Number(props.percent ?? 0);
-                        return `${name}: ${(rawPercent * 100).toFixed(0)}%`;
-                      }}
+                      innerRadius={60}
                       outerRadius={100}
-                      fill="#8884d8"
+                      paddingAngle={2}
+                      labelLine={false}
                       dataKey="value"
                     >
                       {regionData.map((entry, index) => (
                         <Cell key={entry.name ?? `cell-${index}`} fill={COLORS[index % COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip contentStyle={{ backgroundColor: '#8884d8', border: '1px solid #2f8f4a' }} />
+                    <Tooltip contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 8 }} formatter={(val: ValueType, name: NameType) => [val as string | number, String(name ?? 'Region')]} />
+                    <Legend />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
 
-              <div className="bg-white p-6 rounded-lg border-2 border-orange-500">
-                <h2 className="text-xl font-bold text-orange-500 mb-4">Tariff Bracket Distribution</h2>
+              <div className="bg-white p-6 rounded-xl shadow border border-gray-100">
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="text-lg font-semibold text-gray-900">Tariff Bracket Distribution</h2>
+                </div>
                 <ResponsiveContainer width="100%" height={300}>
                   <PieChart>
                     <Pie
                       data={tariffData}
                       cx="50%"
                       cy="50%"
-                      labelLine={false}
-                      label={(props: PieLabelRenderProps) => {
-                        const name = props.name ?? 'Unknown';
-                        const rawPercent = typeof props.percent === 'number' ? props.percent : Number(props.percent ?? 0);
-                        return `${name}: ${(rawPercent * 100).toFixed(0)}%`;
-                      }}
+                      innerRadius={60}
                       outerRadius={100}
-                      fill="#8884d8"
+                      paddingAngle={2}
+                      labelLine={false}
                       dataKey="value"
                     >
                       {tariffData.map((entry, index) => (
                         <Cell key={entry.name ?? `cell-${index}`} fill={COLORS[index % COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip contentStyle={{ backgroundColor: '#8884d8', border: '1px solid #FF8C00' }} />
+                    <Tooltip contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 8 }} formatter={(val: ValueType, name: NameType) => [val as string | number, String(name ?? 'Tariff')]} />
+                    <Legend />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="bg-white p-6 rounded-lg border-2 border-darkgreen-500">
-                <h2 className="text-xl font-bold text-darkgreen-500 mb-4">Appliances Usage (You)</h2>
-                <p className="text-black text-sm mb-4">Your appliance usage distribution across reports</p>
+              <div className="bg-white p-6 rounded-xl shadow border border-gray-100">
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="text-lg font-semibold text-gray-900">Appliances Usage (You)</h2>
+                  <div className="flex items-center gap-2 text-sm">
+                    <label className="text-gray-500">Top</label>
+                    <select className="border border-gray-200 rounded px-2 py-1 text-gray-700" value={topN} onChange={e => setTopN(Number(e.target.value))}>
+                      {[5,8,10,12,15].map(n => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <p className="text-gray-500 text-sm mb-4">Your appliance usage distribution across reports</p>
                 <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={applianceUsageData.slice(0, 10)} layout="vertical" margin={{ left: 30 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#444" />
-                    <XAxis type="number" stroke="#2f8f4a" />
-                    <YAxis type="category" dataKey="name" stroke="#2f8f4a" />
-                    <Tooltip contentStyle={{ backgroundColor: '#1a1a1a' }} />
-                    <Bar dataKey="count" fill="#2f8f4a" />
+                  <BarChart data={applianceUsageData.slice(0, topN)} margin={{ left: 10, right: 20, bottom: 60 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis dataKey="name" stroke="#6b7280" angle={-45} textAnchor="end" interval={0} height={60} />
+                    <YAxis stroke="#6b7280" />
+                    <Tooltip contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 8 }} formatter={(v: number) => [`${v} reports`, 'Usage']} />
+                    <Bar dataKey="count" fill="#10b981" radius={[6,6,0,0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
 
-              <div className="bg-white p-6 rounded-lg border-2 border-orange-500">
-                <h2 className="text-xl font-bold text-orange-500 mb-4">Appliance % Share</h2>
+              <div className="bg-white p-6 rounded-xl shadow border border-gray-100">
+                <h2 className="text-lg font-semibold text-gray-900 mb-2">Appliance % Share</h2>
                 <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={applianceUsageData.slice(0, 8).map(a => ({ name: a.name, value: Number(a.percentage), count: a.count }))} margin={{ left: 20, right: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#444" />
-                    <XAxis dataKey="name" stroke="#2f8f4a" angle={-45} textAnchor="end" interval={0} height={60} />
-                    <YAxis stroke="#2f8f4a" />
-                    <Tooltip contentStyle={{ backgroundColor: '#1a1a1a' }} formatter={(val: number | string, name?: string | number) => {
-                      const label = String(name ?? '');
-                      return [val, label === 'value' ? 'Percentage' : label] as [string | number, string | number];
-                    }} />
-                    <Bar dataKey="value" fill="#F59E0B" name="% Share" />
-                  </BarChart>
+                  <PieChart>
+                    <Pie
+                      data={applianceUsageData.slice(0, topN).map(a => ({ name: a.name, value: Number(a.percentage) }))}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={100}
+                      paddingAngle={2}
+                      labelLine={false}
+                      dataKey="value"
+                      label={({ name, percent }) => {
+                        const p = typeof percent === 'number' ? percent : Number(percent ?? 0);
+                        return `${name}: ${(p * 100).toFixed(0)}%`;
+                      }}
+                    >
+                      {applianceUsageData.slice(0, topN).map((_, index) => (
+                        <Cell key={`appliance-donut-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 8 }} formatter={(val: ValueType, name: NameType) => [`${val}%`, String(name ?? '% Share')]} />
+                    <Legend />
+                  </PieChart>
                 </ResponsiveContainer>
               </div>
             </div>
@@ -721,26 +838,26 @@ const AnalysisSection = ({ reports, isAdmin = false }: AnalysisSectionProps) => 
 
           {/* New Appliance Usage Visualization */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white p-6 rounded-lg border-2 border-darkgreen-500">
-              <h2 className="text-xl font-bold text-darkgreen-500 mb-4">Most Common Appliances</h2>
-              <p className="text-black text-sm mb-4">Appliances used by households (most to least common)</p>
+            <div className="bg-white p-6 rounded-xl shadow border border-gray-100">
+              <h2 className="text-lg font-semibold text-gray-900 mb-2">Most Common Appliances</h2>
+              <p className="text-gray-500 text-sm mb-4">Appliances used by households (most to least common)</p>
               <ResponsiveContainer width="100%" height={400}>
                 <BarChart
                   data={applianceUsageData}
                   layout="vertical"
                   margin={{ top: 5, right: 30, left: 100, bottom: 5 }}
                 >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#444" />
-                  <XAxis type="number" stroke="#2f8f4a" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis type="number" stroke="#6b7280" />
                   <YAxis 
                     type="category" 
                     dataKey="name" 
-                    stroke="#2f8f4a"
-                    width={90}
+                    stroke="#6b7280"
+                    width={110}
                     tick={{ fontSize: 12 }}
                   />
                   <Tooltip 
-                    contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #2f8f4a' }}
+                    contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 8 }}
                     formatter={(value: number | string, name?: string | number) => {
                       const key = String(name ?? '');
                       if (key === 'count') return [`${value} households`, 'Usage Count'] as [string, string];
@@ -752,8 +869,8 @@ const AnalysisSection = ({ reports, isAdmin = false }: AnalysisSectionProps) => 
                   <Bar 
                     dataKey="count" 
                     name="Number of Households"
-                    fill="#FF8C00"
-                    radius={[0, 4, 4, 0]}
+                    fill="#6366f1"
+                    radius={[0, 6, 6, 0]}
                   >
                     {applianceUsageData.map((_, index) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
@@ -763,17 +880,17 @@ const AnalysisSection = ({ reports, isAdmin = false }: AnalysisSectionProps) => 
               </ResponsiveContainer>
             </div>
 
-            <div className="bg-white p-6 rounded-lg border-2 border-orange-500">
-              <h2 className="text-xl font-bold text-orange-500 mb-4">Appliance Usage Distribution</h2>
-              <p className="text-black text-sm mb-4">Count of households using each appliance (top 8)</p>
+            <div className="bg-white p-6 rounded-xl shadow border border-gray-100">
+              <h2 className="text-lg font-semibold text-gray-900 mb-2">Appliance Usage Distribution</h2>
+              <p className="text-gray-500 text-sm mb-4">Count of households using each appliance (top {topN})</p>
               <ResponsiveContainer width="100%" height={400}>
                 <BarChart data={applianceUsageData.slice(0, 8).map(a => ({ name: a.name, count: a.count, pct: Number(a.percentage) }))} margin={{ top: 5, right: 30, left: 20, bottom: 80 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#444" />
-                  <XAxis dataKey="name" stroke="#00FF7F" angle={-45} textAnchor="end" interval={0} height={80} />
-                  <YAxis stroke="#00FF7F" />
-                  <Tooltip contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #FF8C00' }} formatter={(val: number | string, key?: string | number) => [val, String(key ?? '')] as [string | number, string]} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="name" stroke="#6b7280" angle={-45} textAnchor="end" interval={0} height={80} />
+                  <YAxis stroke="#6b7280" />
+                  <Tooltip contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 8 }} formatter={(val: number | string, key?: string | number) => [val, String(key ?? '')] as [string | number, string]} />
                   <Legend />
-                  <Bar dataKey="count" fill="#8884d8" name="Household Count" />
+                  <Bar dataKey="count" fill="#10b981" name="Household Count" radius={[6,6,0,0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -795,116 +912,174 @@ const AnalysisSection = ({ reports, isAdmin = false }: AnalysisSectionProps) => 
             </div>
           )}
 
-          <div className="bg-white p-6 rounded-lg border-2 border-orange-500">
-            <h2 className="text-xl font-bold text-orange-500 mb-4">Consumption & Bill Trend</h2>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={trendData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#444" />
-                <XAxis dataKey="index" stroke="#FF8C00" label={{ value: 'Report #', position: 'insideBottom', offset: -5 }} />
-                <YAxis yAxisId="left" stroke="#00FF7F" label={{ value: 'kWh', angle: -90, position: 'insideLeft' }} />
-                <YAxis yAxisId="right" orientation="right" stroke="#FF8C00" label={{ value: 'RWF', angle: 90, position: 'insideRight' }} />
-                <Tooltip contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #FF8C00' }} />
+          <div className="bg-white p-6 rounded-xl shadow border border-gray-100">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-lg font-semibold text-gray-900">Consumption & Bill Trend</h2>
+              <label className="flex items-center gap-2 text-sm text-gray-600">
+                <input type="checkbox" className="rounded" checked={smoothTrend} onChange={e => setSmoothTrend(e.target.checked)} />
+                Smooth lines
+              </label>
+            </div>
+            <ResponsiveContainer width="100%" height={320}>
+              <AreaChart data={trendWithSmoothing}>
+                <defs>
+                  <linearGradient id="colorCons" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.35}/>
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.05}/>
+                  </linearGradient>
+                  <linearGradient id="colorBill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.35}/>
+                    <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.05}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis dataKey="index" stroke="#6b7280" label={{ value: 'Report #', position: 'insideBottom', offset: -5 }} />
+                <YAxis yAxisId="left" stroke="#10b981" label={{ value: 'kWh', angle: -90, position: 'insideLeft' }} />
+                <YAxis yAxisId="right" orientation="right" stroke="#f59e0b" label={{ value: 'RWF', angle: 90, position: 'insideRight' }} />
+                <Tooltip contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 8 }} formatter={(value: number, name: string) => {
+                  const key = String(name || '').toLowerCase();
+                  const isConsumption = key.includes('consum');
+                  return [isConsumption ? formatKWh(value) : formatRWF(value), isConsumption ? 'Consumption' : 'Bill'];
+                }} />
                 <Legend />
-                <Line yAxisId="left" type="monotone" dataKey="consumption" stroke="#00FF7F" strokeWidth={2} name="Consumption (kWh)" />
-                <Line yAxisId="right" type="monotone" dataKey="bill" stroke="#FF8C00" strokeWidth={2} name="Bill (RWF)" />
-              </LineChart>
+                <Area yAxisId="left" type="monotone" dataKey={smoothTrend ? 'consumption_smoothed' : 'consumption'} stroke="#10b981" fill="url(#colorCons)" name="Consumption (kWh)" strokeWidth={2} />
+                <Area yAxisId="right" type="monotone" dataKey={smoothTrend ? 'bill_smoothed' : 'bill'} stroke="#f59e0b" fill="url(#colorBill)" name="Bill (RWF)" strokeWidth={2} />
+              </AreaChart>
             </ResponsiveContainer>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white p-6 rounded-lg border-2 border-darkgreen-500">
-              <h2 className="text-xl font-bold text-darkgreen-500 mb-4">Key Statistics</h2>
-              <div className="space-y-4">
-                <div className="flex justify-between p-3 bg-gray-50 rounded">
-                  <span className="text-black">Highest Consumption:</span>
-                  <span className="font-bold text-darkgreen-500">
-                    {Math.max(...reports.map(r => parseFloat(String(r.consumption)))).toFixed(2)} kWh
-                  </span>
+            {/* Key Statistics: Professional table style */}
+            <div className="rounded-xl shadow border border-gray-100 overflow-hidden">
+              <div className="bg-gray-100 px-6 py-3 text-xs uppercase tracking-wide text-gray-600 font-semibold">Key Statistics</div>
+              {isAdmin ? (
+                <div className="p-6 text-sm text-gray-700">
+                  {/* Keep admin simple; household gets table below */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3 bg-gray-50 rounded">
+                      <div className="text-gray-600">Highest Consumption</div>
+                      <div className="text-gray-900 font-semibold">{Math.max(...reports.map(r => parseFloat(String(r.consumption)))).toFixed(2)} <span className="text-gray-500 text-xs align-top">kWh</span></div>
+                    </div>
+                    <div className="p-3 bg-gray-50 rounded">
+                      <div className="text-gray-600">Highest Bill</div>
+                      <div className="text-gray-900 font-semibold">{Math.max(...reports.map(r => parseFloat(String(r.bill)))).toFixed(2)} <span className="text-gray-500 text-xs align-top">RWF</span></div>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex justify-between p-3 bg-gray-50 rounded">
-                  <span className="text-black">Lowest Consumption:</span>
-                  <span className="font-bold text-darkgreen-500">
-                    {Math.min(...reports.map(r => parseFloat(String(r.consumption)))).toFixed(2)} kWh
-                  </span>
-                </div>
-                <div className="flex justify-between p-3 bg-gray-50 rounded">
-                  <span className="text-black">Highest Bill:</span>
-                  <span className="font-bold text-orange-500">
-                    {Math.max(...reports.map(r => parseFloat(String(r.bill)))).toFixed(2)} RWF
-                  </span>
-                </div>
-                <div className="flex justify-between p-3 bg-gray-50 rounded">
-                  <span className="text-black">Lowest Bill:</span>
-                  <span className="font-bold text-orange-500">
-                    {Math.min(...reports.map(r => parseFloat(String(r.bill)))).toFixed(2)} RWF
-                  </span>
-                </div>
-                <div className="flex justify-between p-3 bg-gray-50 rounded">
-                  <span className="text-black">Most Common Appliance:</span>
-                  <span className="font-bold text-darkgreen-500">
-                    {applianceUsageData[0]?.name || 'N/A'}
-                  </span>
-                </div>
-                <div className="flex justify-between p-3 bg-gray-50 rounded">
-                  <span className="text-black">Total Unique Appliances:</span>
-                  <span className="font-bold text-orange-500">
-                    {applianceUsageData.length}
-                  </span>
-                </div>
-              </div>
+              ) : (
+                <table className="min-w-full text-sm text-gray-700">
+                  <thead>
+                    <tr className="text-xs uppercase text-gray-600 bg-white border-b">
+                      <th className="px-6 py-3 text-left">Metric</th>
+                      <th className="px-6 py-3 text-left">Value</th>
+                      <th className="px-6 py-3 text-left">Unit</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    <tr className="odd:bg-white even:bg-gray-50 hover:bg-gray-100">
+                      <td className="px-6 py-4">Highest Consumption</td>
+                      <td className="px-6 py-4 font-semibold text-emerald-600">{Math.max(...reports.map(r => parseFloat(String(r.consumption)))).toFixed(2)}</td>
+                      <td className="px-6 py-4 text-gray-500">kWh</td>
+                    </tr>
+                    <tr className="odd:bg-white even:bg-gray-50 hover:bg-gray-100">
+                      <td className="px-6 py-4">Lowest Consumption</td>
+                      <td className="px-6 py-4 font-semibold text-emerald-600">{Math.min(...reports.map(r => parseFloat(String(r.consumption)))).toFixed(2)}</td>
+                      <td className="px-6 py-4 text-gray-500">kWh</td>
+                    </tr>
+                    <tr className="odd:bg-white even:bg-gray-50 hover:bg-gray-100">
+                      <td className="px-6 py-4">Highest Bill</td>
+                      <td className="px-6 py-4 font-semibold text-orange-600">{Math.max(...reports.map(r => parseFloat(String(r.bill)))).toFixed(0)}</td>
+                      <td className="px-6 py-4 text-gray-500">RWF</td>
+                    </tr>
+                    <tr className="odd:bg-white even:bg-gray-50 hover:bg-gray-100">
+                      <td className="px-6 py-4">Lowest Bill</td>
+                      <td className="px-6 py-4 font-semibold text-orange-600">{Math.min(...reports.map(r => parseFloat(String(r.bill)))).toFixed(0)}</td>
+                      <td className="px-6 py-4 text-gray-500">RWF</td>
+                    </tr>
+                    <tr className="odd:bg-white even:bg-gray-50 hover:bg-gray-100">
+                      <td className="px-6 py-4">Most Common Appliance</td>
+                      <td className="px-6 py-4">
+                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">{applianceUsageData[0]?.name || 'N/A'}</span>
+                      </td>
+                      <td className="px-6 py-4 text-gray-500">—</td>
+                    </tr>
+                    <tr className="odd:bg-white even:bg-gray-50 hover:bg-gray-100">
+                      <td className="px-6 py-4">Total Unique Appliances</td>
+                      <td className="px-6 py-4 font-semibold text-gray-900">{applianceUsageData.length}</td>
+                      <td className="px-6 py-4 text-gray-500">items</td>
+                    </tr>
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td className="px-6 py-3 text-xs text-gray-500" colSpan={3}>
+                        <div className="flex items-center justify-between">
+                          <span>1–6 of 6</span>
+                          <div className="flex items-center gap-3">
+                            <span>Rows per page: 6</span>
+                            <div className="flex items-center gap-1">
+                              <button className="px-2 py-1 rounded border border-gray-200 text-gray-500" aria-label="Previous" disabled>{'<'}</button>
+                              <span>1/1</span>
+                              <button className="px-2 py-1 rounded border border-gray-200 text-gray-500" aria-label="Next" disabled>{'>'}</button>
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              )}
             </div>
 
-            <div className="bg-gray-900 p-6 rounded-lg border-2 border-orange-500">
-              <h2 className="text-xl font-bold text-orange-500 mb-4">Insights</h2>
-              <div className="space-y-3">
-                {isAdmin ? (
-                  <>
-                    <div className="p-4 bg-darkgreen-900 border border-darkgreen-500 rounded">
-                      <p className="text-sm">
-                        <strong className="text-darkgreen-400">Most Common Region:</strong>{' '}
-                        <span className="text-white">{regionData.sort((a, b) => b.value - a.value)[0]?.name || 'N/A'}</span>
-                      </p>
-                    </div>
-                    <div className="p-4 bg-orange-900 border border-orange-500 rounded">
-                      <p className="text-sm">
-                        <strong className="text-orange-400">Average Household Size:</strong>{' '}
-                        <span className="text-white">{averageHouseholdSizeValue !== null
-                          ? averageHouseholdSizeValue.toFixed(1)
-                          : 'N/A'}</span>
-                      </p>
-                    </div>
-                    <div className="p-4 bg-darkgreen-900 border border-darkgreen-500 rounded">
-                      <p className="text-sm">
-                        <strong className="text-darkgreen-400">Most Common Tariff:</strong>{' '}
-                        <span className="text-white">{tariffData.sort((a, b) => b.value - a.value)[0]?.name || 'N/A'}</span>
-                      </p>
-                    </div>
-                    <div className="p-4 bg-orange-900 border border-orange-500 rounded">
-                      <p className="text-sm">
-                        <strong className="text-orange-400">Top 3 Appliances:</strong>{' '}
-                        <span className="text-white">{applianceUsageData.slice(0, 3).map(app => app.name).join(', ') || 'N/A'}</span>
-                      </p>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="p-4 bg-darkgreen-900 border border-darkgreen-500 rounded">
-                      <p className="text-sm">
-                        <strong className="text-darkgreen-400">Top Appliances (You):</strong>{' '}
-                        <span className="text-white">{applianceUsageData.slice(0, 3).map(app => app.name).join(', ') || 'N/A'}</span>
-                      </p>
-                    </div>
-                    <div className="p-4 bg-orange-900 border border-orange-500 rounded">
-                      <p className="text-sm">
-                        <strong className="text-orange-400">Estimated Monthly Bill (avg):</strong>{' '}
-                        <span className="text-white">{reports.length > 0 ? (totalBill / reports.length).toFixed(2) : 'N/A'} RWF</span>
-                      </p>
-                    </div>
-                    <div className="p-4 bg-darkgreen-900 border border-darkgreen-500 rounded">
-                      <p className="text-sm">
-                        <strong className="text-darkgreen-400">Most Expensive Appliance:</strong>{' '}
-                        <span className="text-white">{(() => {
-                          // Find appliance with highest average bill share
+            {/* Insights: Professional table style for household; retain admin content */}
+            <div className="rounded-xl shadow border border-gray-100 overflow-hidden">
+              <div className="bg-gray-100 px-6 py-3 text-xs uppercase tracking-wide text-gray-600 font-semibold">Insights</div>
+              {isAdmin ? (
+                <div className="p-6 space-y-3">
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded">
+                    <span className="text-gray-700">Most Common Region</span>
+                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">{regionData.sort((a, b) => b.value - a.value)[0]?.name || 'N/A'}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded">
+                    <span className="text-gray-700">Average Household Size</span>
+                    <span className="text-gray-900 font-semibold">{averageHouseholdSizeValue !== null ? averageHouseholdSizeValue.toFixed(1) : 'N/A'}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded">
+                    <span className="text-gray-700">Most Common Tariff</span>
+                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">{tariffData.sort((a, b) => b.value - a.value)[0]?.name || 'N/A'}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded">
+                    <span className="text-gray-700">Top 3 Appliances</span>
+                    <span className="text-gray-900 font-semibold">{applianceUsageData.slice(0, 3).map(app => app.name).join(', ') || 'N/A'}</span>
+                  </div>
+                </div>
+              ) : (
+                <table className="min-w-full text-sm text-gray-700">
+                  <thead>
+                    <tr className="text-xs uppercase text-gray-600 bg-white border-b">
+                      <th className="px-6 py-3 text-left">Insight</th>
+                      <th className="px-6 py-3 text-left">Value</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    <tr className="odd:bg-white even:bg-gray-50 hover:bg-gray-100">
+                      <td className="px-6 py-4">Top Appliances (You)</td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-wrap gap-2">
+                          {applianceUsageData.slice(0, 3).map(app => (
+                            <span key={app.name} className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">{app.name}</span>
+                          ))}
+                          {applianceUsageData.length === 0 && <span className="text-gray-500">N/A</span>}
+                        </div>
+                      </td>
+                    </tr>
+                    <tr className="odd:bg-white even:bg-gray-50 hover:bg-gray-100">
+                      <td className="px-6 py-4">Estimated Monthly Bill (avg)</td>
+                      <td className="px-6 py-4 font-semibold text-gray-900">{reports.length > 0 ? (totalBill / reports.length).toFixed(2) : 'N/A'} <span className="text-gray-500 text-xs align-top">RWF</span></td>
+                    </tr>
+                    <tr className="odd:bg-white even:bg-gray-50 hover:bg-gray-100">
+                      <td className="px-6 py-4">Most Expensive Appliance</td>
+                      <td className="px-6 py-4">
+                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">{(() => {
                           const applianceBills: Record<string, number[]> = {};
                           reports.forEach(r => {
                             r.appliances?.forEach(a => {
@@ -915,17 +1090,32 @@ const AnalysisSection = ({ reports, isAdmin = false }: AnalysisSectionProps) => 
                           const averages = Object.entries(applianceBills).map(([name, arr]) => ({ name, avg: arr.reduce((s, v) => s + v, 0) / arr.length }));
                           return averages.sort((a, b) => b.avg - a.avg)[0]?.name || 'N/A';
                         })()}</span>
-                      </p>
-                    </div>
-                    <div className="p-4 bg-orange-900 border border-orange-500 rounded">
-                      <p className="text-sm">
-                        <strong className="text-orange-400">Unique Appliances you use:</strong>{' '}
-                        <span className="text-white">{applianceUsageData.length}</span>
-                      </p>
-                    </div>
-                  </>
-                )}
-              </div>
+                      </td>
+                    </tr>
+                    <tr className="odd:bg-white even:bg-gray-50 hover:bg-gray-100">
+                      <td className="px-6 py-4">Unique Appliances you use</td>
+                      <td className="px-6 py-4 font-semibold text-gray-900">{applianceUsageData.length}</td>
+                    </tr>
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td className="px-6 py-3 text-xs text-gray-500" colSpan={2}>
+                        <div className="flex items-center justify-between">
+                          <span>1–4 of 4</span>
+                          <div className="flex items-center gap-3">
+                            <span>Rows per page: 4</span>
+                            <div className="flex items-center gap-1">
+                              <button className="px-2 py-1 rounded border border-gray-200 text-gray-500" aria-label="Previous" disabled>{'<'}</button>
+                              <span>1/1</span>
+                              <button className="px-2 py-1 rounded border border-gray-200 text-gray-500" aria-label="Next" disabled>{'>'}</button>
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              )}
             </div>
           </div>
         </>

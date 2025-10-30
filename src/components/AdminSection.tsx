@@ -61,8 +61,11 @@ const AdminSection = ({ reports = [] }: AdminSectionProps) => {
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
   const [communityInsights, setCommunityInsights] = useState<CommunityInsights | null>(null);
-  // Stores per-report cluster assignments returned by the API (index-aligned with `reports`)
+  // Stores per-report cluster assignments returned by the API
+  // 1) index-aligned fallback (when household_id is missing)
   const [clusterAssignments, setClusterAssignments] = useState<number[]>([]);
+  // 2) id-aligned mapping using household_id -> cluster (preferred)
+  const [clusterAssignmentById, setClusterAssignmentById] = useState<Record<string, number>>({});
   const [selectedCluster, setSelectedCluster] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState('clustering');
   const [isLoading, setIsLoading] = useState(false);
@@ -176,7 +179,8 @@ const AdminSection = ({ reports = [] }: AdminSectionProps) => {
         // Group by cluster and create cluster data
         const clusterMap = new Map<number, Cluster>();
         const anomalyList: Anomaly[] = [];
-        const assignments: number[] = [];
+  const assignments: number[] = [];
+  const assignmentsById: Record<string, number> = {};
 
         individualPredictions.forEach((prediction: ClusterPrediction, index: number) => {
           const clusterData: Cluster = {
@@ -190,6 +194,9 @@ const AdminSection = ({ reports = [] }: AdminSectionProps) => {
 
           clusterMap.set(prediction.cluster, clusterData);
           assignments[index] = prediction.cluster;
+          if (prediction.household_id) {
+            assignmentsById[String(prediction.household_id)] = prediction.cluster;
+          }
 
           if (prediction.anomaly_status === 'Anomaly') {
             anomalyList.push({
@@ -200,9 +207,10 @@ const AdminSection = ({ reports = [] }: AdminSectionProps) => {
           }
         });
 
-        setClusters(Array.from(clusterMap.values()));
-        setAnomalies(anomalyList);
-        setClusterAssignments(assignments);
+  setClusters(Array.from(clusterMap.values()));
+  setAnomalies(anomalyList);
+  setClusterAssignments(assignments);
+  setClusterAssignmentById(assignmentsById);
         
         console.log('Processed clusters:', Array.from(clusterMap.values()));
         console.log('Processed anomalies:', anomalyList);
@@ -242,39 +250,51 @@ const AdminSection = ({ reports = [] }: AdminSectionProps) => {
 
     // Get reports that belong to this cluster (simplified mapping)
     // In a real implementation, this mapping would come from the API response
-    // Use real assignments from API (fallback to empty when not available)
-    const clusterReports = reports.filter((_, index) => clusterAssignments[index] === clusterId);
+    // Prefer id-based assignment from API; fallback to index alignment if needed
+    const clusterReports = reports.filter((r, index) => {
+      const key = String(r.id);
+      if (key in clusterAssignmentById) {
+        return clusterAssignmentById[key] === clusterId;
+      }
+      return clusterAssignments[index] === clusterId;
+    });
 
     const consumptions = clusterReports.map(r => parseFloat(String(r.consumption)) || 0);
     const bills = clusterReports.map(r => parseFloat(String(r.bill)) || 0);
 
+    // Dynamic classification to avoid mismatched labels/ranges
+    const avg = consumptions.length > 0 ? Number((consumptions.reduce((a, b) => a + b, 0) / consumptions.length).toFixed(2)) : 0;
+    const minC = consumptions.length > 0 ? Math.min(...consumptions) : 0;
+    const maxC = consumptions.length > 0 ? Math.max(...consumptions) : 0;
+
+    const classify = (value: number) => {
+      if (value <= 50) return { name: 'Low Consumption Households', color: 'green', range: '0-50 kWh (Low Consumption)' };
+      if (value <= 150) return { name: 'Medium Consumption Households', color: 'blue', range: '51-150 kWh (Medium Consumption)' };
+      return { name: 'High Consumption Households', color: 'orange', range: '151+ kWh (High Consumption)' };
+    };
+
+    // Use average consumption to label cluster and max to compute range floor
+    const cls = classify(avg);
+
     return {
       cluster_id: clusterId,
-      cluster_name: cluster.cluster_profile.name,
+      // Prefer dynamic, consumption-based label to prevent mismatches with API naming
+      cluster_name: cls.name,
       description: cluster.cluster_profile.description,
-      color: ['green', 'blue', 'orange'][clusterId] || 'gray',
+      color: cls.color,
       households: clusterReports,
-      avg_consumption: consumptions.length > 0 ? 
-        Number((consumptions.reduce((a, b) => a + b, 0) / consumptions.length).toFixed(2)) : 0,
+      avg_consumption: avg,
       avg_bill: bills.length > 0 ? 
         Number((bills.reduce((a, b) => a + b, 0) / bills.length).toFixed(2)) : 0,
       size: clusterReports.length,
-      consumption_range: getConsumptionRange(clusterId),
+      consumption_range: cls.range,
       typical_profile: cluster.cluster_profile.characteristics.join(', '),
-      min_consumption: consumptions.length > 0 ? Math.min(...consumptions) : 0,
-      max_consumption: consumptions.length > 0 ? Math.max(...consumptions) : 0,
+      min_consumption: minC,
+      max_consumption: maxC,
       common_regions: getCommonRegions(clusterReports)
     };
   };
 
-  const getConsumptionRange = (clusterId: number): string => {
-    const ranges = [
-      "0-50 kWh (Low Consumption)",
-      "51-150 kWh (Medium Consumption)", 
-      "151+ kWh (High Consumption)"
-    ];
-    return ranges[clusterId] || "Unknown Range";
-  };
 
   const getCommonRegions = (households: Report[]): string[] => {
     const regionCount: Record<string, number> = {};
