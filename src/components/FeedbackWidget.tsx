@@ -1,8 +1,9 @@
 import { useState } from 'react';
+import { FaStar, FaRegStar } from 'react-icons/fa';
 
 type FeedbackWidgetProps = {
 	isAdmin?: boolean;
-	backendBaseUrl?: string; // e.g. http://localhost:4000/api
+	backendBaseUrl?: string;
 	householdId?: string;
 };
 
@@ -19,10 +20,17 @@ const ChatIcon = ({ className = 'w-6 h-6' }: { className?: string }) => (
 );
 
 const Star = ({ filled, onClick }: { filled: boolean; onClick: () => void }) => (
-	<button type="button" aria-label="rate" onClick={onClick} className="focus:outline-none">
-		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="w-5 h-5" fill={filled ? '#059669' : 'none'} stroke={filled ? '#059669' : '#9CA3AF'}>
-			<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11.48 3.499a.75.75 0 0 1 1.04 0l2.248 2.207a.75.75 0 0 0 .564.218l3.115-.27a.75.75 0 0 1 .79.994l-1.1 2.86a.75.75 0 0 0 .173.79l2.217 2.226a.75.75 0 0 1-.41 1.267l-3.084.56a.75.75 0 0 0-.577.45l-1.231 2.826a.75.75 0 0 1-1.342 0l-1.231-2.826a.75.75 0 0 0-.577-.45l-3.084-.56a.75.75 0 0 1-.41-1.267l2.217-2.226a.75.75 0 0 0 .173-.79l-1.1-2.86a.75.75 0 0 1 .79-.994l3.115.27a.75.75 0 0 0 .564-.218l2.248-2.207Z" />
-		</svg>
+	<button
+		type="button"
+		aria-label={filled ? 'rated' : 'rate'}
+		onClick={onClick}
+		className="focus:outline-none transition-transform hover:scale-110"
+	>
+		{filled ? (
+			<FaStar className="w-5 h-5 text-yellow-400" />
+		) : (
+			<FaRegStar className="w-5 h-5 text-gray-300" />
+		)}
 	</button>
 );
 
@@ -71,7 +79,15 @@ export default function FeedbackWidget({ isAdmin = false, backendBaseUrl, househ
 						headers: { 'Content-Type': 'application/json' },
 						body: JSON.stringify(payload)
 					});
-					if (res.ok) posted = true;
+					if (res.ok) {
+						posted = true;
+						try {
+							const out = await res.json();
+							setSuccess(out?.message || 'Feedback sent successfully');
+						} catch {
+							setSuccess('Feedback sent successfully');
+						}
+					}
 				} catch {
 					// ignore and fallback
 				}
@@ -85,7 +101,9 @@ export default function FeedbackWidget({ isAdmin = false, backendBaseUrl, househ
 						try { localStorage.setItem(key, JSON.stringify(prev)); } catch { /* ignore */ }
 			}
 
-			setSuccess('Thanks for your feedback!');
+			if (!posted) {
+				setSuccess('Feedback saved locally — will sync when online.');
+			}
 			reset();
 			setTimeout(() => { setSuccess(null); setOpen(false); }, 1200);
 		} catch (err) {
